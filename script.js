@@ -1,6 +1,6 @@
 /**
  * CHRISTABEL SUSU HUB — ONLINE SUSU REGISTRATION SYSTEM
- * Pure Vanilla JavaScript Client-Side Validation & WhatsApp Submission Engine
+ * Pure Vanilla JavaScript Client-Side Validation, jsPDF Generator & WhatsApp Integration
  */
 
 (function () {
@@ -12,10 +12,10 @@
     businessPhone: "0547909190",
     businessWhatsApp: "233547909190",
     contributionAmount: "GH₵105",
-    contributionDuration: "Two Weeks",
+    contributionDuration: "1 Week (7 Days)",
     paymentDeadline: "6:30 p.m. daily",
     latePenalty: "GH₵50 upon 2nd delay",
-    defaultFrequency: "Daily Contribution (GH₵105 daily)"
+    defaultFrequency: "Daily Contribution (GH₵105 daily for 1 week)"
   };
 
   // DOM Elements
@@ -53,6 +53,9 @@
   const copyMessageBtn = document.getElementById("copyMessageBtn");
   const copyBtnText = document.getElementById("copyBtnText");
   const preparedMessageDisplay = document.getElementById("preparedMessageDisplay");
+  const downloadPdfAgainBtn = document.getElementById("downloadPdfAgainBtn");
+  const sharePdfDirectBtn = document.getElementById("sharePdfDirectBtn");
+  const pdfFilenameDisplay = document.getElementById("pdfFilenameDisplay");
 
   // Dynamic Year in Footer
   const currentYearSpan = document.getElementById("currentYear");
@@ -72,32 +75,29 @@
     startDateInput.value = todayISO;
   }
 
-  // State to hold compiled message
+  // State to hold compiled data and generated PDF
   let activeCompiledMessage = "";
   let activeWhatsAppUrl = "";
+  let activePdfDoc = null;
+  let activePdfFilename = "Christabel_Susu_Registration.pdf";
+  let activePdfBlob = null;
 
   /**
    * Phone Number Validator for Ghanaian Phone Numbers
    * Accepts:
-   *  - 10-digit standard: 0244123456, 0552211362, 0201234567
-   *  - 9-digit without leading 0: 552211362, 244123456
-   *  - International: +233552211362, 233552211362
-   * Standard prefixes: 020, 050, 024, 054, 055, 059, 053, 027, 057, 026, 056, 028
+   *  - 10-digit standard: 0547909190, 0552211362, 0244123456
+   *  - 9-digit: 547909190
+   *  - International: +233547909190, 233547909190
    */
   function isValidGhanaPhone(phoneStr) {
     if (!phoneStr) return false;
     const cleaned = phoneStr.replace(/[\s\-()]/g, "");
-    
-    // Pattern matches:
-    // 0 followed by (20|50|24|54|55|59|53|27|57|26|56|28) and 7 digits
-    // OR 233 or +233 followed by (20|50|24|54|55|59|53|27|57|26|56|28) and 7 digits
-    // OR 9 digits starting with (20|50|24|54|55|59|53|27|57|26|56|28)
     const ghanaPhoneRegex = /^(?:(?:\+?233)|0)?([235][0-9]{8})$/;
     return ghanaPhoneRegex.test(cleaned);
   }
 
   /**
-   * Format phone number to clean display / WhatsApp international format
+   * Normalize phone number to standard local 10-digit format for display
    */
   function normalizeGhanaPhone(phoneStr) {
     if (!phoneStr) return "";
@@ -112,9 +112,6 @@
     return cleaned;
   }
 
-  /**
-   * Show inline error message
-   */
   function setFieldError(fieldId, errorMsg) {
     const field = document.getElementById(fieldId);
     const errorContainer = document.getElementById(fieldId + "Error");
@@ -128,9 +125,6 @@
     }
   }
 
-  /**
-   * Clear inline error message
-   */
   function clearFieldError(fieldId) {
     const field = document.getElementById(fieldId);
     const errorContainer = document.getElementById(fieldId + "Error");
@@ -144,9 +138,7 @@
     }
   }
 
-  /**
-   * Sync WhatsApp input with primary telephone when checkbox checked
-   */
+  // Sync WhatsApp input with primary telephone when checkbox checked
   if (samePhoneCheckbox) {
     samePhoneCheckbox.addEventListener("change", function () {
       if (this.checked) {
@@ -164,9 +156,7 @@
     });
   }
 
-  /**
-   * Toast notification helper
-   */
+  // Toast notification helper
   let toastTimer = null;
   function showToast(message) {
     if (!toastElement) return;
@@ -232,7 +222,7 @@
       isValid = false;
       if (!firstErrorElement) firstErrorElement = primaryPhoneInput;
     } else if (!isValidGhanaPhone(primaryPhoneVal)) {
-      setFieldError("primaryPhone", "Enter a valid 10-digit Ghanaian number (e.g. 055 221 1362).");
+      setFieldError("primaryPhone", "Enter a valid 10-digit Ghanaian number (e.g. 054 790 9190).");
       isValid = false;
       if (!firstErrorElement) firstErrorElement = primaryPhoneInput;
     } else {
@@ -246,7 +236,7 @@
       isValid = false;
       if (!firstErrorElement) firstErrorElement = whatsappInput;
     } else if (!isValidGhanaPhone(whatsappVal)) {
-      setFieldError("whatsappNumber", "Enter a valid Ghanaian WhatsApp number (e.g. 055 221 1362).");
+      setFieldError("whatsappNumber", "Enter a valid Ghanaian WhatsApp number (e.g. 054 790 9190).");
       isValid = false;
       if (!firstErrorElement) firstErrorElement = whatsappInput;
     } else {
@@ -366,7 +356,6 @@
       clearFieldError("typedNameConfirmation");
     }
 
-    // If invalid, smooth scroll to first error
     if (!isValid && firstErrorElement) {
       firstErrorElement.focus();
       firstErrorElement.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -375,9 +364,7 @@
     return isValid;
   }
 
-  /**
-   * Real-time validation listener setup for input/blur
-   */
+  // Real-time validation listeners
   const monitoredInputs = [
     "fullName",
     "primaryPhone",
@@ -427,9 +414,61 @@
   }
 
   /**
-   * Compile WhatsApp Registration Message
+   * Generate Clean Text Summary for WhatsApp
    */
-  function generateRegistrationMessage() {
+  function generateWhatsAppTextSummary(regId) {
+    const fullName = fullNameInput.value.trim();
+    const phone = normalizeGhanaPhone(primaryPhoneInput.value.trim());
+    const whatsapp = normalizeGhanaPhone(whatsappInput.value.trim());
+    const contributionFrequency = document.getElementById("contributionFrequency").value;
+    const startDate = startDateInput.value;
+    const paymentMethod = document.getElementById("paymentMethod").value;
+    const collectionMethod = document.getElementById("collectionMethod").value;
+    const collectionLocation = document.getElementById("collectionLocation").value.trim();
+    const payoutSlot = document.getElementById("payoutSlot").value.trim() || "Awaiting Admin Allocation";
+    const typedName = typedNameInput.value.trim();
+    const registrationDate = regDateInput.value;
+
+    return `NEW SUSU REGISTRATION (PDF ATTACHED)
+CHRISTABEL SUSU HUB
+Reference: ${regId}
+
+Hello Christabel Susu Hub, I have completed my registration for the 1-Week Susu Scheme. My official signed PDF registration document is attached below.
+
+REGISTRATION SUMMARY
+- Applicant: ${fullName}
+- Primary Phone: ${phone}
+- WhatsApp: ${whatsapp}
+- Scheme Rate: GH₵105
+- Duration: 1 Week (7 Days)
+- Frequency: ${contributionFrequency}
+- Preferred Start Date: ${startDate}
+- Payment Method: ${paymentMethod}
+- Collection Location: ${collectionLocation}
+- Payout Slot: ${payoutSlot}
+- Terms Accepted: Yes (Rules 1-6)
+- Signed by: ${typedName}
+- Date: ${registrationDate}
+
+Please confirm receipt of my PDF and assign my official payout slot. Thank you!`;
+  }
+
+  /**
+   * Generate High-Quality Branded PDF Registration Slip using jsPDF
+   */
+  function generateRegistrationPDF(regId) {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      console.warn("jsPDF library not loaded. Using fallback.");
+      return null;
+    }
+
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({
+      orientation: "portrait",
+      unit: "mm",
+      format: "a4"
+    });
+
     const fullName = fullNameInput.value.trim();
     const dob = document.getElementById("dateOfBirth").value || "Not provided";
     const gender = document.getElementById("gender").value || "Not specified";
@@ -439,6 +478,7 @@
 
     const phone = normalizeGhanaPhone(primaryPhoneInput.value.trim());
     const whatsapp = normalizeGhanaPhone(whatsappInput.value.trim());
+    const altPhone = document.getElementById("alternativePhone").value.trim() || "None";
     const nextOfKin = document.getElementById("nextOfKinName").value.trim();
     const nextOfKinPhone = normalizeGhanaPhone(document.getElementById("nextOfKinPhone").value.trim());
     const relationship = document.getElementById("nextOfKinRelationship").value;
@@ -448,49 +488,186 @@
     const paymentMethod = document.getElementById("paymentMethod").value;
     const collectionMethod = document.getElementById("collectionMethod").value;
     const collectionLocation = document.getElementById("collectionLocation").value.trim();
-    const payoutSlot = document.getElementById("payoutSlot").value.trim() || "Awaiting Admin Allocation";
+    const payoutSlot = document.getElementById("payoutSlot").value.trim() || "Awaiting Allocation";
     const additionalNotes = document.getElementById("additionalNotes").value.trim() || "None";
 
     const typedName = typedNameInput.value.trim();
     const registrationDate = regDateInput.value;
 
-    const message = 
-`NEW SUSU REGISTRATION
-CHRISTABEL SUSU HUB
+    // --- 1. HEADER BANNER (Emerald Green #064E3B) ---
+    doc.setFillColor(6, 78, 59);
+    doc.rect(0, 0, 210, 32, "F");
 
-PERSONAL INFORMATION
-Full Name: ${fullName}
-Date of Birth: ${dob}
-Gender: ${gender}
-Occupation: ${occupation}
-Residential Address: ${address}
-Digital Address: ${digitalAddress}
+    // Gold decorative accent line (#F59E0B)
+    doc.setFillColor(245, 158, 11);
+    doc.rect(0, 32, 210, 2, "F");
 
-CONTACT INFORMATION
-Phone Number: ${phone}
-WhatsApp Number: ${whatsapp}
-Next of Kin: ${nextOfKin}
-Next of Kin Phone: ${nextOfKinPhone}
-Relationship: ${relationship}
+    // Brand Title
+    doc.setTextColor(254, 243, 199);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("CHRISTABEL SUSU HUB", 14, 13);
 
-CONTRIBUTION DETAILS
-Contribution Amount: GH₵105
-Contribution Frequency: ${contributionFrequency}
-Duration: Two Weeks
-Start Date: ${startDate}
-Payment Method: ${paymentMethod}
-Collection Method: ${collectionMethod}
-Collection Location: ${collectionLocation}
-Payout Slot: ${payoutSlot}
-Additional Notes: ${additionalNotes}
+    // Subtitle
+    doc.setTextColor(255, 255, 255);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("OFFICIAL SUSU CONTRIBUTION REGISTRATION FORM — 1 WEEK SCHEME", 14, 20);
+    doc.text("WhatsApp / Telephone: +233 54 790 9190 (0547909190) | Cut-off: 6:30 p.m. Daily", 14, 26);
 
-TERMS ACCEPTANCE
-Member Accepted Terms: Yes (Rules 1-6)
-Declaration Accepted: Yes
-Typed Name Confirmation: ${typedName}
-Registration Date: ${registrationDate}`;
+    // Reference Pill (Top Right)
+    doc.setFillColor(4, 120, 87);
+    doc.roundedRect(145, 8, 53, 16, 2, 2, "F");
+    doc.setTextColor(254, 243, 199);
+    doc.setFontSize(7.5);
+    doc.setFont("helvetica", "bold");
+    doc.text("REGISTRATION REF:", 148, 14);
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(10);
+    doc.text(regId, 148, 20);
 
-    return message;
+    let y = 42;
+
+    // Helper function to draw section title
+    function drawSectionHeader(title, sectionLetter) {
+      doc.setFillColor(241, 245, 249);
+      doc.rect(14, y, 182, 7, "F");
+      doc.setFillColor(6, 78, 59);
+      doc.circle(18, y + 3.5, 2.5, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(6.5);
+      doc.text(sectionLetter, 17.2, y + 4.5);
+
+      doc.setTextColor(15, 23, 42);
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "bold");
+      doc.text(title, 23, y + 4.8);
+      y += 10;
+    }
+
+    // Helper function to draw key-value pair
+    function drawField(label, value, xOffset, width) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(label.toUpperCase(), xOffset, y);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8.5);
+      doc.setTextColor(15, 23, 42);
+      const safeVal = String(value || "-");
+      doc.text(safeVal, xOffset, y + 4.5);
+    }
+
+    // --- SECTION A: PERSONAL INFORMATION ---
+    drawSectionHeader("SECTION A: PERSONAL INFORMATION", "A");
+    drawField("Full Legal Name", fullName, 14, 90);
+    drawField("Date of Birth", dob, 105, 45);
+    drawField("Gender", gender, 155, 40);
+    y += 10;
+
+    drawField("Occupation", occupation, 14, 90);
+    drawField("Residential Address", address, 105, 90);
+    y += 10;
+
+    drawField("GhanaPost Digital Address", digitalAddress, 14, 180);
+    y += 10;
+
+    // --- SECTION B: CONTACT INFORMATION ---
+    drawSectionHeader("SECTION B: CONTACT INFORMATION", "B");
+    drawField("Primary Phone Number", phone, 14, 60);
+    drawField("Active WhatsApp Number", whatsapp, 78, 60);
+    drawField("Alternative Telephone", altPhone, 142, 54);
+    y += 10;
+
+    // --- SECTION C: CONTRIBUTION PARAMETERS (1 WEEK SCHEME) ---
+    drawSectionHeader("SECTION C: 1-WEEK SUSU CONTRIBUTION PLAN", "C");
+    
+    // Highlight Plan Box
+    doc.setFillColor(254, 243, 199);
+    doc.setDrawColor(245, 158, 11);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(14, y, 182, 12, 1.5, 1.5, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(146, 64, 14);
+    doc.text("Contribution: GH₵105", 18, y + 5);
+    doc.text("Cycle Duration: 1 Week (7 Days)", 75, y + 5);
+    doc.text("Daily Cut-Off: 6:30 p.m.", 145, y + 5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(180, 83, 9);
+    doc.text(`Frequency: ${contributionFrequency}`, 18, y + 9.5);
+    y += 16;
+
+    drawField("Preferred Start Date", startDate, 14, 60);
+    drawField("Payment Method", paymentMethod, 78, 60);
+    drawField("Collection Method", collectionMethod, 142, 54);
+    y += 10;
+
+    drawField("Collection Landmark / Location", collectionLocation, 14, 90);
+    drawField("Assigned Payout Slot", payoutSlot, 105, 45);
+    drawField("Special Instructions", additionalNotes, 155, 40);
+    y += 10;
+
+    // --- SECTION D: NEXT OF KIN ---
+    drawSectionHeader("SECTION D: NEXT OF KIN DETAILS", "D");
+    drawField("Next of Kin Full Name", nextOfKin, 14, 60);
+    drawField("Next of Kin Telephone", nextOfKinPhone, 78, 60);
+    drawField("Relationship to Member", relationship, 142, 54);
+    y += 10;
+
+    // --- SECTION E: TERMS & CONDITIONS DECLARATION ---
+    drawSectionHeader("SECTION E: TERMS ACCEPTANCE & ELECTRONIC SIGNATURE", "E");
+
+    // Terms summary box
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.setLineWidth(0.3);
+    doc.roundedRect(14, y, 182, 24, 1.5, 1.5, "FD");
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(7);
+    doc.setTextColor(71, 85, 105);
+    doc.text("1. Daily payment deadline: 6:30 p.m. daily.", 17, y + 4.5);
+    doc.text("2. Delay penalty: GH₵50 mandatory penalty applies upon the 2nd qualifying delay.", 17, y + 8.5);
+    doc.text("3. Slot reassignment: Repeated delays (3rd delay) entitle administrator to reassign payout queue position.", 17, y + 12.5);
+    doc.text("4. Early exit: Member may request opt-out subject to agreed administrative deduction and audit refund.", 17, y + 16.5);
+    doc.text("5. Member confirmation: Customer verifies all submitted information and accepts all 1-week scheme rules.", 17, y + 20.5);
+    y += 28;
+
+    // Electronic Signature Box
+    doc.setFillColor(236, 253, 245);
+    doc.setDrawColor(5, 150, 105);
+    doc.setLineWidth(0.5);
+    doc.roundedRect(14, y, 182, 17, 2, 2, "FD");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.setTextColor(6, 95, 70);
+    doc.text("ELECTRONIC SIGNATURE CONFIRMATION", 18, y + 5);
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(4, 120, 87);
+    doc.text(`Signed by: ${typedName}`, 18, y + 11.5);
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(`Date Signed: ${registrationDate}`, 120, y + 11.5);
+    doc.text("Status: VERIFIED & SUBMITTED", 158, y + 11.5);
+    y += 22;
+
+    // Footer note
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.setFont("helvetica", "italic");
+    doc.text("Christabel Susu Hub &bull; 0547909190 &bull; Submit this downloaded document to our WhatsApp for slot verification.", 105, 288, { align: "center" });
+
+    return doc;
   }
 
   /**
@@ -520,9 +697,24 @@ Registration Date: ${registrationDate}`;
   function openInstructionsModal() {
     preparedMessageDisplay.textContent = activeCompiledMessage;
     reopenWhatsAppBtn.href = activeWhatsAppUrl;
+    pdfFilenameDisplay.textContent = activePdfFilename;
+
+    // Check if Web Share API with files is supported
+    if (
+      navigator.canShare &&
+      activePdfBlob &&
+      navigator.canShare({
+        files: [new File([activePdfBlob], activePdfFilename, { type: "application/pdf" })]
+      })
+    ) {
+      sharePdfDirectBtn.style.display = "inline-flex";
+    } else {
+      sharePdfDirectBtn.style.display = "none";
+    }
+
     instructionsModal.classList.add("active");
     instructionsModal.setAttribute("aria-hidden", "false");
-    copyMessageBtn.focus();
+    downloadPdfAgainBtn.focus();
   }
 
   function closeInstructionsModal() {
@@ -536,7 +728,6 @@ Registration Date: ${registrationDate}`;
   if (closeInstructionsBtn) closeInstructionsBtn.addEventListener("click", closeInstructionsModal);
   if (dismissInstructionBtn) dismissInstructionBtn.addEventListener("click", closeInstructionsModal);
 
-  // Close modals when clicking backdrop
   window.addEventListener("click", (e) => {
     if (e.target === previewModal) closePreviewModal();
     if (e.target === instructionsModal) closeInstructionsModal();
@@ -550,41 +741,99 @@ Registration Date: ${registrationDate}`;
       return;
     }
 
-    // Build message
-    activeCompiledMessage = generateRegistrationMessage();
-    const encoded = encodeURIComponent(activeCompiledMessage);
-    activeWhatsAppUrl = `https://wa.me/${CONFIG.businessWhatsApp}?text=${encoded}`;
-
-    // Open confirmation step
     openPreviewModal();
   });
 
   /**
-   * Confirm and Launch WhatsApp
+   * Confirm, Generate PDF, Trigger Download & Launch WhatsApp
    */
   confirmWhatsAppBtn.addEventListener("click", function () {
-    // Prevent double clicking
     confirmWhatsAppBtn.disabled = true;
-    confirmWhatsAppBtn.textContent = "Opening WhatsApp...";
+    confirmWhatsAppBtn.textContent = "Generating PDF...";
+
+    const applicantCleanName = fullNameInput.value
+      .trim()
+      .replace(/[^a-zA-Z0-9]/g, "_");
+    activePdfFilename = `Christabel_Susu_Registration_${applicantCleanName}.pdf`;
+
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    const regId = `CSH-${randomSuffix}`;
+
+    // 1. Build text message for WhatsApp
+    activeCompiledMessage = generateWhatsAppTextSummary(regId);
+    const encoded = encodeURIComponent(activeCompiledMessage);
+    activeWhatsAppUrl = `https://wa.me/${CONFIG.businessWhatsApp}?text=${encoded}`;
+
+    // 2. Generate PDF
+    try {
+      activePdfDoc = generateRegistrationPDF(regId);
+      if (activePdfDoc) {
+        // Automatically save/download PDF to applicant's device
+        activePdfDoc.save(activePdfFilename);
+        activePdfBlob = activePdfDoc.output("blob");
+      }
+    } catch (err) {
+      console.error("PDF generation error:", err);
+      showToast("PDF generated with fallback. Proceeding to WhatsApp.");
+    }
 
     closePreviewModal();
 
-    // Trigger WhatsApp Click-to-Chat in new tab or direct window
+    // 3. Open WhatsApp Click-to-Chat in new tab
     window.open(activeWhatsAppUrl, "_blank");
 
-    // Open guidance modal immediately to instruct user and provide fallback
+    // 4. Open guidance modal immediately to instruct user to attach PDF
     setTimeout(() => {
       openInstructionsModal();
       confirmWhatsAppBtn.disabled = false;
-      confirmWhatsAppBtn.innerHTML = `<span>Confirm &amp; Open WhatsApp</span>
+      confirmWhatsAppBtn.innerHTML = `<span>Download PDF &amp; Open WhatsApp</span>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-          <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2ZM12.05 20.15C10.58 20.15 9.14 19.76 7.87 19.01L7.57 18.83L4.45 19.65L5.28 16.61L5.08 16.3C4.26 14.99 3.82 13.47 3.82 11.91C3.82 7.38 7.51 3.69 12.05 3.69C14.25 3.69 16.31 4.55 17.86 6.11C19.42 7.66 20.27 9.72 20.27 11.92C20.28 16.46 16.58 20.15 12.05 20.15ZM16.57 14.34C16.32 14.21 15.1 13.61 14.88 13.53C14.65 13.44 14.49 13.4 14.32 13.65C14.16 13.9 13.69 14.45 13.55 14.61C13.41 14.77 13.27 14.79 13.02 14.67C12.77 14.54 11.97 14.28 11.02 13.43C10.28 12.77 9.78 11.95 9.64 11.71C9.49 11.46 9.62 11.33 9.75 11.2C9.86 11.09 10 10.92 10.12 10.78C10.24 10.64 10.28 10.53 10.36 10.37C10.44 10.2 10.4 10.06 10.34 9.93C10.28 9.81 9.79 8.6 9.58 8.1C9.38 7.61 9.18 7.68 9.02 7.67H8.53C8.37 7.67 8.1 7.73 7.87 7.98C7.65 8.23 7.01 8.82 7.01 10.04C7.01 11.25 7.9 12.42 8.02 12.58C8.14 12.74 9.77 15.24 12.24 16.31C12.83 16.57 13.29 16.72 13.64 16.84C14.23 17.02 14.77 17 15.2 16.93C15.68 16.86 16.68 16.32 16.88 15.74C17.09 15.17 17.09 14.68 17.03 14.58C16.97 14.47 16.82 14.41 16.57 14.34Z"/>
+          <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2ZM12.05 20.15C10.58 20.15 9.14 19.76 7.87 19.01L7.57 18.83L4.45 19.65L5.28 16.61L5.08 16.3C4.26 14.99 3.82 13.47 3.82 11.91C3.82 7.38 7.51 3.69 12.05 3.69C14.25 3.69 16.31 4.55 17.86 6.11C19.42 7.66 20.27 9.72 20.27 11.92C20.28 16.46 16.58 20.15 12.05 20.15ZM16.57 14.34C16.32 14.21 15.1 13.61 14.88 13.53C14.65 13.44 14.49 13.4 14.32 13.65C14.16 13.9 13.69 14.45 13.55 14.61C13.41 14.77 13.27 14.79 13.02 14.67C12.77 14.54 11.97 14.28 11.02 13.43C10.28 12.77 9.78 11.95 9.64 11.71C9.49 11.46 9.62 11.33 9.75 11.2C9.86 10.09 10 10.92 10.12 10.78C10.24 10.64 10.28 10.53 10.36 10.37C10.44 10.2 10.4 10.06 10.34 9.93C10.28 9.81 9.79 8.6 9.58 8.1C9.38 7.61 9.18 7.68 9.02 7.67H8.53C8.37 7.67 8.1 7.73 7.87 7.98C7.65 8.23 7.01 8.82 7.01 10.04C7.01 11.25 7.9 12.42 8.02 12.58C8.14 12.74 9.77 15.24 12.24 16.31C12.83 16.57 13.29 16.72 13.64 16.84C14.23 17.02 14.77 17 15.2 16.93C15.68 16.86 16.68 16.32 16.88 15.74C17.09 15.17 17.09 14.68 17.03 14.58C16.97 14.47 16.82 14.41 16.57 14.34Z"/>
         </svg>`;
     }, 400);
   });
 
   /**
-   * Copy fallback button
+   * "Download PDF Again" button listener
+   */
+  if (downloadPdfAgainBtn) {
+    downloadPdfAgainBtn.addEventListener("click", function () {
+      if (activePdfDoc) {
+        activePdfDoc.save(activePdfFilename);
+        showToast("PDF downloaded again successfully.");
+      } else {
+        const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+        activePdfDoc = generateRegistrationPDF(`CSH-${randomSuffix}`);
+        if (activePdfDoc) {
+          activePdfDoc.save(activePdfFilename);
+          showToast("PDF downloaded successfully.");
+        }
+      }
+    });
+  }
+
+  /**
+   * Native Share PDF Directly (on supported mobile devices)
+   */
+  if (sharePdfDirectBtn) {
+    sharePdfDirectBtn.addEventListener("click", async function () {
+      if (!activePdfBlob) return;
+      try {
+        const pdfFile = new File([activePdfBlob], activePdfFilename, { type: "application/pdf" });
+        await navigator.share({
+          files: [pdfFile],
+          title: "Christabel Susu Hub Registration",
+          text: activeCompiledMessage
+        });
+        showToast("PDF shared successfully!");
+      } catch (err) {
+        console.log("Direct share cancelled or not allowed:", err);
+      }
+    });
+  }
+
+  /**
+   * Copy Text fallback button
    */
   copyMessageBtn.addEventListener("click", function () {
     if (!activeCompiledMessage) return;
@@ -594,7 +843,7 @@ Registration Date: ${registrationDate}`;
         .then(() => {
           copyBtnText.textContent = "Copied!";
           showToast("Registration message copied to clipboard.");
-          setTimeout(() => { copyBtnText.textContent = "Copy Message"; }, 2500);
+          setTimeout(() => { copyBtnText.textContent = "Copy Text"; }, 2500);
         })
         .catch(() => {
           fallbackClipboardCopy(activeCompiledMessage);
@@ -615,7 +864,7 @@ Registration Date: ${registrationDate}`;
       document.execCommand("copy");
       copyBtnText.textContent = "Copied!";
       showToast("Registration message copied to clipboard.");
-      setTimeout(() => { copyBtnText.textContent = "Copy Message"; }, 2500);
+      setTimeout(() => { copyBtnText.textContent = "Copy Text"; }, 2500);
     } catch (err) {
       showToast("Please copy the message manually from the box.");
     }

@@ -9,8 +9,8 @@
   // Business Configuration
   const CONFIG = {
     businessName: "Christabel Susu Hub",
-    businessPhone: "0552211362",
-    businessWhatsApp: "233552211362",
+    businessPhone: "0547909190",
+    businessWhatsApp: "233547909190",
     contributionAmount: "GH₵105",
     contributionDuration: "Two Weeks",
     paymentDeadline: "6:30 p.m. daily",

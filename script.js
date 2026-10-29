@@ -745,9 +745,9 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
   });
 
   /**
-   * Confirm, Generate PDF, Trigger Download & Launch WhatsApp
+   * Confirm, Generate PDF, Trigger Direct Share / Download & Launch WhatsApp
    */
-  confirmWhatsAppBtn.addEventListener("click", function () {
+  confirmWhatsAppBtn.addEventListener("click", async function () {
     confirmWhatsAppBtn.disabled = true;
     confirmWhatsAppBtn.textContent = "Generating PDF...";
 
@@ -768,8 +768,6 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
     try {
       activePdfDoc = generateRegistrationPDF(regId);
       if (activePdfDoc) {
-        // Automatically save/download PDF to applicant's device
-        activePdfDoc.save(activePdfFilename);
         activePdfBlob = activePdfDoc.output("blob");
       }
     } catch (err) {
@@ -779,14 +777,41 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
 
     closePreviewModal();
 
-    // 3. Open WhatsApp Click-to-Chat in new tab
-    window.open(activeWhatsAppUrl, "_blank");
+    let sharedDirectly = false;
+    const pdfFile = activePdfBlob
+      ? new File([activePdfBlob], activePdfFilename, { type: "application/pdf" })
+      : null;
 
-    // 4. Open guidance modal immediately to instruct user to attach PDF
+    // 3. If on mobile with native file-sharing support (e.g. Android/iOS Chrome/Safari),
+    // trigger native share directly so the PDF file is sent straight to WhatsApp!
+    if (pdfFile && navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+      try {
+        await navigator.share({
+          files: [pdfFile],
+          title: "Christabel Susu Hub Registration",
+          text: activeCompiledMessage
+        });
+        sharedDirectly = true;
+        showToast("PDF shared directly to admin WhatsApp!");
+      } catch (shareErr) {
+        console.log("Native share not completed or cancelled:", shareErr);
+      }
+    }
+
+    // 4. Fallback for desktop or if native share wasn't completed:
+    // Automatically download the PDF to their device and open WhatsApp
+    if (!sharedDirectly) {
+      if (activePdfDoc) {
+        activePdfDoc.save(activePdfFilename);
+      }
+      window.open(activeWhatsAppUrl, "_blank");
+    }
+
+    // 5. Open guidance modal for easy reference and re-download
     setTimeout(() => {
       openInstructionsModal();
       confirmWhatsAppBtn.disabled = false;
-      confirmWhatsAppBtn.innerHTML = `<span>Download PDF &amp; Open WhatsApp</span>
+      confirmWhatsAppBtn.innerHTML = `<span>Send PDF to Admin</span>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
           <path d="M12.04 2C6.58 2 2.13 6.45 2.13 11.91C2.13 13.66 2.59 15.36 3.45 16.86L2.05 22L7.3 20.62C8.75 21.41 10.38 21.83 12.04 21.83C17.5 21.83 21.95 17.38 21.95 11.92C21.95 9.27 20.92 6.78 19.05 4.91C17.18 3.03 14.69 2 12.04 2ZM12.05 20.15C10.58 20.15 9.14 19.76 7.87 19.01L7.57 18.83L4.45 19.65L5.28 16.61L5.08 16.3C4.26 14.99 3.82 13.47 3.82 11.91C3.82 7.38 7.51 3.69 12.05 3.69C14.25 3.69 16.31 4.55 17.86 6.11C19.42 7.66 20.27 9.72 20.27 11.92C20.28 16.46 16.58 20.15 12.05 20.15ZM16.57 14.34C16.32 14.21 15.1 13.61 14.88 13.53C14.65 13.44 14.49 13.4 14.32 13.65C14.16 13.9 13.69 14.45 13.55 14.61C13.41 14.77 13.27 14.79 13.02 14.67C12.77 14.54 11.97 14.28 11.02 13.43C10.28 12.77 9.78 11.95 9.64 11.71C9.49 11.46 9.62 11.33 9.75 11.2C9.86 10.09 10 10.92 10.12 10.78C10.24 10.64 10.28 10.53 10.36 10.37C10.44 10.2 10.4 10.06 10.34 9.93C10.28 9.81 9.79 8.6 9.58 8.1C9.38 7.61 9.18 7.68 9.02 7.67H8.53C8.37 7.67 8.1 7.73 7.87 7.98C7.65 8.23 7.01 8.82 7.01 10.04C7.01 11.25 7.9 12.42 8.02 12.58C8.14 12.74 9.77 15.24 12.24 16.31C12.83 16.57 13.29 16.72 13.64 16.84C14.23 17.02 14.77 17 15.2 16.93C15.68 16.86 16.68 16.32 16.88 15.74C17.09 15.17 17.09 14.68 17.03 14.58C16.97 14.47 16.82 14.41 16.57 14.34Z"/>
         </svg>`;

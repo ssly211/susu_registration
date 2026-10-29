@@ -626,17 +626,18 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
     doc.setFillColor(248, 250, 252);
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.3);
-    doc.roundedRect(14, y, 182, 24, 1.5, 1.5, "FD");
+    doc.roundedRect(14, y, 182, 27, 1.5, 1.5, "FD");
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(71, 85, 105);
-    doc.text("1. Daily payment deadline: 6:30 p.m. daily.", 17, y + 4.5);
-    doc.text("2. Delay penalty: GH₵50 mandatory penalty applies upon the 2nd qualifying delay.", 17, y + 8.5);
-    doc.text("3. Slot reassignment: Repeated delays (3rd delay) entitle administrator to reassign payout queue position.", 17, y + 12.5);
-    doc.text("4. Early exit: Member may request opt-out subject to agreed administrative deduction and audit refund.", 17, y + 16.5);
-    doc.text("5. Member confirmation: Customer verifies all submitted information and accepts all 1-week scheme rules.", 17, y + 20.5);
-    y += 28;
+    doc.text("1. Daily payment deadline: 6:30 p.m. daily.", 17, y + 4.2);
+    doc.text("2. Delay penalty: GH₵50 mandatory penalty applies upon the 2nd qualifying delay.", 17, y + 8.0);
+    doc.text("3. Slot reassignment: Repeated delays (3rd delay) entitle administrator to reassign payout queue position.", 17, y + 11.8);
+    doc.text("4. Administrator share: The administrator is entitled to a share on each beneficiary payout.", 17, y + 15.6);
+    doc.text("5. Early exit: Member may request opt-out subject to agreed administrative deduction and audit refund.", 17, y + 19.4);
+    doc.text("6. Member acceptance: Customer verifies all submitted information and accepts all 1-week scheme rules.", 17, y + 23.2);
+    y += 30;
 
     // Electronic Signature Box
     doc.setFillColor(236, 253, 245);
@@ -733,7 +734,7 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
     if (e.target === instructionsModal) closeInstructionsModal();
   });
 
-  // Handle Form Submit (Triggers validation & preview modal)
+  // Handle Form Submit: Validate, Generate PDF & Submit STRAIGHT to WhatsApp
   form.addEventListener("submit", function (e) {
     e.preventDefault();
 
@@ -741,7 +742,53 @@ Please confirm receipt of my PDF and assign my official payout slot. Thank you!`
       return;
     }
 
-    openPreviewModal();
+    // Indicate submission in progress on button
+    const originalBtnHtml = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = `
+      <svg class="btn-spinner" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation: spin 1s linear infinite; margin-right: 8px;">
+        <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"></path>
+      </svg>
+      <span>Submitting straight to WhatsApp...</span>
+    `;
+
+    const applicantCleanName = fullNameInput.value
+      .trim()
+      .replace(/[^a-zA-Z0-9]/g, "_");
+    activePdfFilename = `Christabel_Susu_Registration_${applicantCleanName}.pdf`;
+
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    const regId = `CSH-${randomSuffix}`;
+
+    // 1. Build text message for WhatsApp
+    activeCompiledMessage = generateWhatsAppTextSummary(regId);
+    const encoded = encodeURIComponent(activeCompiledMessage);
+    activeWhatsAppUrl = `https://wa.me/${CONFIG.businessWhatsApp}?text=${encoded}`;
+
+    // 2. Generate PDF & Save/Download to user's device
+    try {
+      activePdfDoc = generateRegistrationPDF(regId);
+      if (activePdfDoc) {
+        activePdfDoc.save(activePdfFilename);
+        activePdfBlob = activePdfDoc.output("blob");
+      }
+    } catch (err) {
+      console.error("PDF generation error:", err);
+    }
+
+    // 3. SUBMIT STRAIGHT TO WHATSAPP!
+    // Opens the WhatsApp app directly without intermediate modal popups
+    setTimeout(() => {
+      window.location.href = activeWhatsAppUrl;
+    }, 150);
+
+    // 4. In case the user stays on the page, show the instruction card with download/reopen options
+    setTimeout(() => {
+      openInstructionsModal();
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = originalBtnHtml;
+    }, 800);
   });
 
   /**
